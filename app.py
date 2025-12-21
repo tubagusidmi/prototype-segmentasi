@@ -11,10 +11,6 @@ from sklearn.decomposition import PCA
 if "locked" not in st.session_state:
     st.session_state.locked = False
 
-for key in ["df", "labels", "clusters", "centroids", "data_2d", "centroids_2d"]:
-    if key not in st.session_state:
-        st.session_state[key] = None
-
 # =====================================================
 # KONFIGURASI HALAMAN
 # =====================================================
@@ -51,7 +47,7 @@ if st.session_state.locked:
     st.sidebar.warning("🔒 Hasil klaster sudah dikunci")
 
 # =====================================================
-# FUNGSI K-MEANS
+# FUNGSI K-MEANS (AMAN)
 # =====================================================
 def euclidean(a, b):
     return math.sqrt(sum((a[i] - b[i]) ** 2 for i in range(min(len(a), len(b)))))
@@ -62,11 +58,13 @@ def init_centroids(data, k):
 def assign_clusters(data, centroids):
     clusters = [[] for _ in centroids]
     labels = []
+
     for idx, point in enumerate(data):
         distances = [euclidean(point, c) for c in centroids]
         cidx = distances.index(min(distances))
         clusters[cidx].append((idx + 1, point))
         labels.append(cidx)
+
     return clusters, labels
 
 def compute_centroids(clusters, dim):
@@ -75,23 +73,26 @@ def compute_centroids(clusters, dim):
         if not cluster:
             centroids.append([0] * dim)
         else:
-            centroids.append([sum(p[1][i] for p in cluster)/len(cluster) for i in range(dim)])
+            centroids.append(
+                [sum(p[1][i] for p in cluster) / len(cluster) for i in range(dim)]
+            )
     return centroids
 
 def kategori_kerentanan(skor):
     if skor >= 0.75:
-        return "SANGAT TINGGI"
+        return "🔴 Sangat Tinggi (Sangat Rentan)"
     elif skor >= 0.60:
-        return "TINGGI"
+        return "🟠 Tinggi (Mendekati Rentan)"
     elif skor >= 0.40:
-        return "RENDAH"
+        return "🟡 Rendah"
     else:
-        return "SANGAT RENDAH"
+        return "🟢 Sangat Rendah (Lebih Baik)"
 
 # =====================================================
 # LOAD DATASET
 # =====================================================
 if uploaded_file is not None:
+
     try:
         df_raw = pd.read_csv(uploaded_file, header=None)
     except:
@@ -116,7 +117,7 @@ if uploaded_file is not None:
     st.success(f"📁 Dataset dimuat: {len(dataset)} data, {dim} variabel")
 
     # =====================================================
-    # PROSES K-MEANS
+    # PROSES K-MEANS (HANYA SEKALI)
     # =====================================================
     if not st.session_state.locked:
         if st.button("🚀 Proses K-Means"):
@@ -136,7 +137,7 @@ if uploaded_file is not None:
             data_2d = pca.fit_transform(dataset)
             centroids_2d = pca.transform(centroids)
 
-            # SIMPAN KE SESSION STATE
+            # SIMPAN KE SESSION STATE (LOCK)
             st.session_state.df = df
             st.session_state.labels = labels
             st.session_state.clusters = clusters
@@ -148,7 +149,7 @@ if uploaded_file is not None:
             st.success("✅ Proses K-Means selesai dan hasil dikunci")
 
 # =====================================================
-# TAMPILKAN HASIL
+# TAMPILKAN HASIL (SETELAH LOCK)
 # =====================================================
 if st.session_state.locked:
 
@@ -164,27 +165,6 @@ if st.session_state.locked:
     st.divider()
     st.subheader("🎯 Analisis Cluster")
 
-    # =====================================================
-    # BAR CHART SKOR KERENTANAN
-    # =====================================================
-    st.subheader("📊 Bar Chart Skor Kerentanan Setiap Cluster")
-    cluster_scores = [0.34, 0.62, 0.50, 0.22]  # nilai tetap sesuai permintaan
-    cluster_colors = ['yellow', 'red', 'orange', 'green']
-    fig_bar, ax_bar = plt.subplots()
-    bars = ax_bar.bar(range(1, K+1), cluster_scores, color=cluster_colors[:K])
-    ax_bar.set_xlabel("Cluster")
-    ax_bar.set_ylabel("Skor Kerentanan")
-    ax_bar.set_title("Tingkat Kerentanan Setiap Cluster")
-    ax_bar.set_xticks(range(1, K+1))
-    ax_bar.set_xticklabels([f"Cluster {i}" for i in range(1,K+1)])
-    # Tampilkan skor di atas bar
-    for idx, score in enumerate(cluster_scores[:K]):
-        ax_bar.text(idx+1, score+0.01, f"{score:.2f}", ha='center')
-    st.pyplot(fig_bar)
-
-    # =====================================================
-    # PILIH CLUSTER
-    # =====================================================
     cluster_idx = st.selectbox(
         "Pilih Cluster:",
         options=list(range(1, K + 1)),
@@ -193,7 +173,7 @@ if st.session_state.locked:
 
     df_cluster = hasil[hasil["Cluster"] == cluster_idx]
 
-    skor = cluster_scores[cluster_idx-1]
+    skor = df_cluster.drop(columns=["Cluster"]).values.mean()
     kategori = kategori_kerentanan(skor)
 
     st.markdown(f"""
@@ -204,85 +184,65 @@ if st.session_state.locked:
     """)
 
     # =====================================================
-    # NARASI KARAKTERISTIK, PENYEBAB, SOLUSI SESUAI PERMINTAAN
+    # PCA HIGHLIGHT + CENTROID ⭐
     # =====================================================
-    narasi_clusters = {
-        1: """📊 Karakteristik
-• Pendidikan: nilai normalisasi tinggi menandakan pendidikan orang tua rendah.
-• Pekerjaan: cukup baik dan relatif stabil.
-•Penghasilan: cukup untuk memenuhi kebutuhan dasar anak.
-• Anggota keluarga: jumlah tanggungan sedang.
-• Tempat tinggal: cukup layak.
-⚠️ Tingkat Kerentanan
-Klaster ini memiliki skor kerentanan 0,34 lebih baik dibanding klaster 2 dan 3 sehingga dikategorikan sebagai klaster dengan tingkat kerentanan RENDAH.
-⚠️ Penyebab Potensial Anak Putus Sekolah
-• Rendahnya pendidikan orang tua berdampak pada kurangnya perhatian terhadap proses belajar anak.
-• Motivasi pendidikan keluarga yang belum kuat.
-• Kurangnya keterlibatan dalam kegiatan sekolah.
-💡 Solusi dan Rekomendasi Kebijakan
-• Program motivasi pendidikan dan bimbingan belajar.
-• Edukasi kepada orang tua mengenai pentingnya pendidikan jangka panjang.
-• Penguatan peran wali kelas dan guru BK untuk mencegah penurunan motivasi anak.
-• Pemberian akses kegiatan ekstrakurikuler untuk meningkatkan engagement siswa.
-""",
-        2: """📊 Karakteristik
-• Pendidikan: rendah.
-• Pekerjaan: tidak stabil (rentan pekerjaan informal dan penghasilan tidak tetap).
-• Penghasilan: rendah.
-• Anggota keluarga: relatif besar sehingga beban ekonomi tinggi.
-• Tempat tinggal: tidak layak huni.
-⚠️ Tingkat Kerentanan
-Klaster ini memiliki skor kerentanan 0,62 sehingga dikategorikan sebagai klaster dengan tingkat kerentanan SANGAT TINGGI.
-⚠️ Penyebab Potensial Anak Putus Sekolah
-• Ketidakstabilan pendapatan orang tua.
-• Pendidikan orang tua rendah sehingga wawasan tentang pentingnya pendidikan terbatas.
-• Tingginya beban ekonomi keluarga akibat jumlah tanggungan yang besar.
-• Anak berpotensi didorong bekerja membantu ekonomi keluarga.
-💡 Solusi dan Rekomendasi Kebijakan
-• Penyaluran bantuan sosial prioritas (PKH, beasiswa penuh).
-• Program perbaikan rumah tidak layak huni (RTLH).
-• Intervensi terpadu: sekolah–kelurahan–dinas sosial–puskesmas.
-• Pendampingan keluarga secara intensif oleh tenaga kesejahteraan sosial.
-• Pemberdayaan ekonomi keluarga melalui program UMKM dan pelatihan produktif.
-• Konseling pendidikan untuk meningkatkan motivasi anak.
-""",
-        3: """📊 Karakteristik
-• Pendidikan: rendah.
-• Pekerjaan: tidak stabil (rentan pekerjaan informal dan penghasilan tidak tetap).
-• Penghasilan: rendah.
-• Anggota keluarga: relatif besar sehingga beban ekonomi tinggi.
-• Tempat tinggal: masih layak namun tidak optimal.
-⚠️ Tingkat Kerentanan
-Klaster ini memiliki skor kerentanan 0,50 sehingga dikategorikan sebagai klaster dengan tingkat kerentanan TINGGI.
-⚠️ Penyebab Potensial Anak Putus Sekolah
-• Ketidakstabilan pendapatan orang tua.
-• Pendidikan orang tua rendah sehingga wawasan tentang pentingnya pendidikan terbatas.
-• Tingginya beban ekonomi keluarga akibat jumlah tanggungan yang besar.
-• Anak berpotensi didorong bekerja membantu ekonomi keluarga.
-💡 Solusi dan Rekomendasi Kebijakan
-• Bantuan finansial (Beasiswa daerah, subsidi transport dan perlengkapan sekolah).
-• Pelatihan peningkatan keterampilan bagi orang tua (upskilling dan reskilling).
-• Program pendampingan keluarga rawan sosial ekonomi.
-• Intervensi sekolah berupa home visit dan monitoring intensif.
-""",
-        4: """📊 Karakteristik
-• Pendidikan: sangat rendah nilai normalisasi (merepresentasikan pendidikan orang tua lebih tinggi atau lebih baik).
-• Pekerjaan: relatif stabil.
-• Penghasilan: cukup baik dan mendukung kebutuhan dasar pendidikan.
-• Anggota keluarga: jumlah tanggungan sedang.
-• Tempat tinggal: cukup layak.
-⚠️ Tingkat Kerentanan
-Klaster ini memiliki skor kerentanan 0,22 sehingga dikategorikan sebagai klaster dengan tingkat kerentanan SANGAT RENDAH.
-⚠️ Penyebab Potensial Anak Putus Sekolah
-• Motivasi belajar anak menurun karena faktor lingkungan pergaulan.
-• Ketidakhadiran pengawasan pendidikan secara konsisten.
-• Perubahan ekonomi mendadak (misalnya PHK orang tua).
-💡 Solusi dan Rekomendasi Kebijakan
-• Monitoring berkala bagi anak berisiko di sekolah.
-• Program penguatan motivasi belajar dan konseling sekolah.
-• Pelibatan orang tua melalui kegiatan parenting education.
-• Menguatkan ketahanan keluarga melalui program pemberdayaan masyarakat.
-"""
-    }
+    st.subheader("📈 PCA Scatter Plot (Highlight Cluster)")
 
-    st.markdown(narasi_clusters.get(cluster_idx, ""))
+    fig, ax = plt.subplots()
+    for i in range(K):
+        pts = data_2d[[j for j in range(len(labels)) if labels[j] == i]]
+        if i + 1 == cluster_idx:
+            ax.scatter(pts[:, 0], pts[:, 1], s=120, label=f"Cluster {i+1}")
+        else:
+            ax.scatter(pts[:, 0], pts[:, 1], alpha=0.15)
+
+    ax.scatter(
+        centroids_2d[:, 0],
+        centroids_2d[:, 1],
+        marker="*",
+        s=350,
+        c="black",
+        label="Centroid"
+    )
+
+    ax.legend()
+    st.pyplot(fig)
+
+    # =====================================================
+    # ANGGOTA CLUSTER
+    # =====================================================
+    st.subheader("📋 Anggota Cluster (Contoh)")
+    st.dataframe(df_cluster.head(20), use_container_width=True)
+
+    # =====================================================
+    # KARAKTERISTIK (DESKRIPSI)
+    # =====================================================
+    st.subheader("🧬 Karakteristik Cluster")
+    st.markdown("""
+    Cluster ini menunjukkan pola kondisi sosial ekonomi yang relatif serupa,
+    di mana faktor pendidikan, pekerjaan orang tua, dan kondisi keluarga
+    mempengaruhi keberlanjutan pendidikan anak.
+    """)
+
+    # =====================================================
+    # PENYEBAB & SOLUSI
+    # =====================================================
+    st.subheader("⚠️ Penyebab Potensial Anak Putus Sekolah")
+    st.markdown("""
+    - Keterbatasan ekonomi keluarga  
+    - Rendahnya pendidikan orang tua  
+    - Anak harus membantu bekerja  
+    - Lingkungan kurang mendukung pendidikan  
+    """)
+
+    st.subheader("🛠️ Solusi dan Rekomendasi Kebijakan")
+    st.markdown("""
+    - Bantuan pendidikan tepat sasaran  
+    - Program pendampingan keluarga rentan  
+    - Penguatan pendidikan nonformal  
+    - Kolaborasi sekolah, pemerintah, dan masyarakat  
+    """)
+
+    st.success("✅ Analisis cluster dapat dieksplorasi tanpa menghitung ulang.")
+
+
