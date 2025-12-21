@@ -17,7 +17,6 @@ st.title("📊 Prototipe Segmentasi Anak Putus Sekolah")
 st.markdown(
     "Aplikasi web sederhana untuk melakukan klasterisasi menggunakan algoritma **K-Means**."
 )
-
 st.divider()
 
 # =====================================================
@@ -29,13 +28,17 @@ K = st.sidebar.slider("Jumlah Cluster (K)", min_value=2, max_value=8, value=4)
 MAX_ITER = 100
 
 # =====================================================
-# FUNGSI K-MEANS
+# FUNGSI K-MEANS (VERSI AMAN)
 # =====================================================
 def euclidean(a, b):
-    return math.sqrt(sum((a[i] - b[i]) ** 2 for i in range(len(a))))
+    # 🔒 PERBAIKAN 2: aman jika panjang data tidak sama
+    return math.sqrt(
+        sum((a[i] - b[i]) ** 2 for i in range(min(len(a), len(b))))
+    )
 
 def init_centroids(data, k):
-    return random.sample(data, k)
+    # 🔒 PERBAIKAN 3: hindari referensi objek rusak
+    return [data[i][:] for i in random.sample(range(len(data)), k)]
 
 def assign_clusters(data, centroids):
     clusters = [[] for _ in centroids]
@@ -67,18 +70,35 @@ def compute_centroids(clusters, dim):
 # =====================================================
 if uploaded_file is not None:
 
+    # 🔒 PERBAIKAN 1: LOAD & VALIDASI DATASET
     try:
-        df = pd.read_csv(uploaded_file, header=None)
-        dataset = df.values.tolist()
+        df_raw = pd.read_csv(uploaded_file, header=None)
     except Exception:
         st.error("❌ Gagal membaca file CSV.")
         st.stop()
 
+    dataset = []
+    for _, row in df_raw.iterrows():
+        try:
+            numeric_row = [float(x) for x in row.tolist()]
+            dataset.append(numeric_row)
+        except:
+            continue
+
     if len(dataset) == 0:
-        st.error("❌ Dataset kosong.")
+        st.error("❌ Dataset kosong atau tidak valid.")
         st.stop()
 
-    st.success(f"📁 Dataset dimuat: {len(dataset)} data, {len(dataset[0])} variabel")
+    # pastikan semua baris punya panjang sama
+    dim = len(dataset[0])
+    dataset = [row for row in dataset if len(row) == dim]
+
+    if len(dataset) == 0:
+        st.error("❌ Dataset tidak konsisten.")
+        st.stop()
+
+    df = pd.DataFrame(dataset)
+    st.success(f"📁 Dataset dimuat: {len(dataset)} data, {dim} variabel")
 
     if st.button("🚀 Proses K-Means"):
 
@@ -87,7 +107,7 @@ if uploaded_file is not None:
 
         for _ in range(MAX_ITER):
             clusters, labels = assign_clusters(dataset, centroids)
-            new_centroids = compute_centroids(clusters, len(dataset[0]))
+            new_centroids = compute_centroids(clusters, dim)
             if centroids == new_centroids:
                 break
             centroids = new_centroids
@@ -137,7 +157,6 @@ if uploaded_file is not None:
 
         for i, cluster in enumerate(clusters):
             st.markdown(f"**Cluster {i+1}**")
-
             if not cluster:
                 st.write("Tidak ada data.")
                 continue
@@ -147,13 +166,13 @@ if uploaded_file is not None:
             st.dataframe(stats)
 
         # =====================================================
-        # PROFIL KLASTER
+        # PROFIL KLASTER OTOMATIS
         # =====================================================
         st.subheader("🧠 Profil Klaster Otomatis")
 
         for i, cluster in enumerate(clusters):
             jumlah = len(cluster)
-            rata = sum(sum(data) for _, data in cluster) / (jumlah * len(cluster[0][1]))
+            rata = sum(sum(data) for _, data in cluster) / (jumlah * dim)
 
             if rata >= 0.66:
                 kategori = "Kerentanan Tinggi"
