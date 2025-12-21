@@ -6,6 +6,12 @@ import matplotlib.pyplot as plt
 from sklearn.decomposition import PCA
 
 # =====================================================
+# SESSION STATE (LOCK & DATA)
+# =====================================================
+if "locked" not in st.session_state:
+    st.session_state.locked = False
+
+# =====================================================
 # KONFIGURASI HALAMAN
 # =====================================================
 st.set_page_config(
@@ -24,9 +30,21 @@ st.divider()
 # SIDEBAR
 # =====================================================
 st.sidebar.header("⚙️ Pengaturan")
+
 uploaded_file = st.sidebar.file_uploader("Upload Dataset CSV", type=["csv"])
-K = st.sidebar.slider("Jumlah Cluster (K)", min_value=2, max_value=8, value=4)
+
+K = st.sidebar.slider(
+    "Jumlah Cluster (K)",
+    min_value=2,
+    max_value=8,
+    value=4,
+    disabled=st.session_state.locked
+)
+
 MAX_ITER = 100
+
+if st.session_state.locked:
+    st.sidebar.warning("🔒 Hasil klaster sudah dikunci")
 
 # =====================================================
 # FUNGSI K-MEANS (AMAN)
@@ -40,11 +58,13 @@ def init_centroids(data, k):
 def assign_clusters(data, centroids):
     clusters = [[] for _ in centroids]
     labels = []
+
     for idx, point in enumerate(data):
         distances = [euclidean(point, c) for c in centroids]
         cidx = distances.index(min(distances))
         clusters[cidx].append((idx + 1, point))
         labels.append(cidx)
+
     return clusters, labels
 
 def compute_centroids(clusters, dim):
@@ -69,7 +89,7 @@ def kategori_kerentanan(skor):
         return "🟢 Sangat Rendah (Lebih Baik)"
 
 # =====================================================
-# PROSES UTAMA
+# LOAD DATASET
 # =====================================================
 if uploaded_file is not None:
 
@@ -96,118 +116,131 @@ if uploaded_file is not None:
     df = pd.DataFrame(dataset)
     st.success(f"📁 Dataset dimuat: {len(dataset)} data, {dim} variabel")
 
-    if st.button("🚀 Proses K-Means"):
+    # =====================================================
+    # PROSES K-MEANS (HANYA SEKALI)
+    # =====================================================
+    if not st.session_state.locked:
+        if st.button("🚀 Proses K-Means"):
 
-        random.seed(42)
-        centroids = init_centroids(dataset, K)
+            random.seed(42)
+            centroids = init_centroids(dataset, K)
 
-        for _ in range(MAX_ITER):
-            clusters, labels = assign_clusters(dataset, centroids)
-            new_centroids = compute_centroids(clusters, dim)
-            if centroids == new_centroids:
-                break
-            centroids = new_centroids
+            for _ in range(MAX_ITER):
+                clusters, labels = assign_clusters(dataset, centroids)
+                new_centroids = compute_centroids(clusters, dim)
+                if centroids == new_centroids:
+                    break
+                centroids = new_centroids
 
-        # =====================================================
-        # PCA TRANSFORM
-        # =====================================================
-        pca = PCA(n_components=2)
-        data_2d = pca.fit_transform(dataset)
-        centroids_2d = pca.transform(centroids)
+            # PCA
+            pca = PCA(n_components=2)
+            data_2d = pca.fit_transform(dataset)
+            centroids_2d = pca.transform(centroids)
 
-        # =====================================================
-        # PILIH CLUSTER
-        # =====================================================
-        st.divider()
-        st.subheader("🎯 Analisis Cluster Terpilih")
+            # SIMPAN KE SESSION STATE (LOCK)
+            st.session_state.df = df
+            st.session_state.labels = labels
+            st.session_state.clusters = clusters
+            st.session_state.centroids = centroids
+            st.session_state.data_2d = data_2d
+            st.session_state.centroids_2d = centroids_2d
+            st.session_state.locked = True
 
-        cluster_idx = st.selectbox(
-            "Pilih Cluster:",
-            options=list(range(1, K + 1))
-        )
+            st.success("✅ Proses K-Means selesai dan hasil dikunci")
 
-        df["Cluster"] = [l + 1 for l in labels]
-        df_cluster = df[df["Cluster"] == cluster_idx]
+# =====================================================
+# TAMPILKAN HASIL (SETELAH LOCK)
+# =====================================================
+if st.session_state.locked:
 
-        skor = df_cluster.drop(columns=["Cluster"]).values.mean()
-        kategori = kategori_kerentanan(skor)
+    df = st.session_state.df
+    labels = st.session_state.labels
+    clusters = st.session_state.clusters
+    data_2d = st.session_state.data_2d
+    centroids_2d = st.session_state.centroids_2d
 
-        st.markdown(
-            f"""
-            ### 🧠 Ringkasan Cluster {cluster_idx}
-            - 👥 Jumlah Anggota: **{len(df_cluster)}**
-            - 📊 Skor Rata-rata: **{skor:.2f}**
-            - 🚦 Tingkat Kerentanan: **{kategori}**
-            """
-        )
+    hasil = df.copy()
+    hasil["Cluster"] = [l + 1 for l in labels]
 
-        # =====================================================
-        # ANGGOTA CLUSTER
-        # =====================================================
-        st.subheader("📋 Anggota Cluster Terpilih")
-        st.dataframe(df_cluster.head(20), use_container_width=True)
+    st.divider()
+    st.subheader("🎯 Analisis Cluster")
 
-        # =====================================================
-        # PCA SCATTER + CENTROID
-        # =====================================================
-        st.subheader("📈 PCA Scatter Plot (Cluster & Centroid)")
+    cluster_idx = st.selectbox(
+        "Pilih Cluster:",
+        options=list(range(1, K + 1)),
+        key="cluster_pilihan"
+    )
 
-        fig, ax = plt.subplots()
-        for i in range(K):
-            idxs = [j for j, l in enumerate(labels) if l == i]
-            pts = data_2d[idxs]
+    df_cluster = hasil[hasil["Cluster"] == cluster_idx]
 
-            if i + 1 == cluster_idx:
-                ax.scatter(pts[:, 0], pts[:, 1], s=120, label=f"Cluster {i+1}")
-            else:
-                ax.scatter(pts[:, 0], pts[:, 1], alpha=0.2)
+    skor = df_cluster.drop(columns=["Cluster"]).values.mean()
+    kategori = kategori_kerentanan(skor)
 
-        # Centroid
-        ax.scatter(
-            centroids_2d[:, 0],
-            centroids_2d[:, 1],
-            marker="X",
-            s=300,
-            c="black",
-            label="Centroid"
-        )
+    st.markdown(f"""
+    ### 📌 Ringkasan Cluster {cluster_idx}
+    - Jumlah Data : **{len(df_cluster)}**
+    - Skor Rata-rata : **{skor:.2f}**
+    - Tingkat Kerentanan : **{kategori}**
+    """)
 
-        for i, (x, y) in enumerate(centroids_2d):
-            ax.text(x, y, f"C{i+1}", fontsize=11, fontweight="bold")
+    # =====================================================
+    # PCA HIGHLIGHT + CENTROID ⭐
+    # =====================================================
+    st.subheader("📈 PCA Scatter Plot (Highlight Cluster)")
 
-        ax.set_xlabel("PCA 1")
-        ax.set_ylabel("PCA 2")
-        ax.legend()
-        st.pyplot(fig)
+    fig, ax = plt.subplots()
+    for i in range(K):
+        pts = data_2d[[j for j in range(len(labels)) if labels[j] == i]]
+        if i + 1 == cluster_idx:
+            ax.scatter(pts[:, 0], pts[:, 1], s=120, label=f"Cluster {i+1}")
+        else:
+            ax.scatter(pts[:, 0], pts[:, 1], alpha=0.15)
 
-        # =====================================================
-        # KARAKTERISTIK DESKRIPTIF
-        # =====================================================
-        st.subheader("🧬 Karakteristik Cluster")
-        st.markdown("""
-        Cluster ini menunjukkan pola kondisi sosial ekonomi yang relatif serupa,
-        terutama pada tingkat pendidikan, penghasilan keluarga, dan kondisi tempat tinggal.
-        Anak pada cluster ini berpotensi menghadapi hambatan pendidikan yang perlu
-        ditangani secara khusus sesuai tingkat kerentanannya.
-        """)
+    ax.scatter(
+        centroids_2d[:, 0],
+        centroids_2d[:, 1],
+        marker="*",
+        s=350,
+        c="black",
+        label="Centroid"
+    )
 
-        # =====================================================
-        # PENYEBAB & SOLUSI
-        # =====================================================
-        st.subheader("⚠️ Penyebab Potensial Anak Putus Sekolah")
-        st.markdown("""
-        - Keterbatasan ekonomi keluarga  
-        - Rendahnya dukungan pendidikan dari lingkungan keluarga  
-        - Tekanan untuk bekerja membantu orang tua  
-        - Akses pendidikan yang kurang memadai  
-        """)
+    ax.legend()
+    st.pyplot(fig)
 
-        st.subheader("🛠️ Solusi dan Rekomendasi Kebijakan")
-        st.markdown("""
-        - Bantuan pendidikan berbasis cluster kerentanan  
-        - Program pendampingan keluarga rentan  
-        - Penguatan pendidikan nonformal dan kejar paket  
-        - Kolaborasi pemerintah, sekolah, dan masyarakat  
-        """)
+    # =====================================================
+    # ANGGOTA CLUSTER
+    # =====================================================
+    st.subheader("📋 Anggota Cluster (Contoh)")
+    st.dataframe(df_cluster.head(20), use_container_width=True)
 
-        st.success("✅ Analisis cluster berhasil dan siap dipresentasikan.")
+    # =====================================================
+    # KARAKTERISTIK (DESKRIPSI)
+    # =====================================================
+    st.subheader("🧬 Karakteristik Cluster")
+    st.markdown("""
+    Cluster ini menunjukkan pola kondisi sosial ekonomi yang relatif serupa,
+    di mana faktor pendidikan, pekerjaan orang tua, dan kondisi keluarga
+    mempengaruhi keberlanjutan pendidikan anak.
+    """)
+
+    # =====================================================
+    # PENYEBAB & SOLUSI
+    # =====================================================
+    st.subheader("⚠️ Penyebab Potensial Anak Putus Sekolah")
+    st.markdown("""
+    - Keterbatasan ekonomi keluarga  
+    - Rendahnya pendidikan orang tua  
+    - Anak harus membantu bekerja  
+    - Lingkungan kurang mendukung pendidikan  
+    """)
+
+    st.subheader("🛠️ Solusi dan Rekomendasi Kebijakan")
+    st.markdown("""
+    - Bantuan pendidikan tepat sasaran  
+    - Program pendampingan keluarga rentan  
+    - Penguatan pendidikan nonformal  
+    - Kolaborasi sekolah, pemerintah, dan masyarakat  
+    """)
+
+    st.success("✅ Analisis cluster dapat dieksplorasi tanpa menghitung ulang.")
