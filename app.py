@@ -58,15 +58,15 @@ def compute_centroids(clusters, dim):
             )
     return centroids
 
-def warna_kategori(skor):
+def kategori_kerentanan(skor):
     if skor >= 0.75:
-        return "red", "Sangat Tinggi"
+        return "🔴 Sangat Tinggi (Sangat Rentan)"
     elif skor >= 0.60:
-        return "orange", "Tinggi"
+        return "🟠 Tinggi (Mendekati Rentan)"
     elif skor >= 0.40:
-        return "gold", "Sedang"
+        return "🟡 Rendah"
     else:
-        return "green", "Sangat Sedang"
+        return "🟢 Sangat Rendah (Lebih Baik)"
 
 # =====================================================
 # PROSES UTAMA
@@ -109,25 +109,11 @@ if uploaded_file is not None:
             centroids = new_centroids
 
         # =====================================================
-        # PCA GLOBAL
+        # PCA TRANSFORM
         # =====================================================
-        st.subheader("📈 PCA Scatter Plot (Global)")
-
         pca = PCA(n_components=2)
         data_2d = pca.fit_transform(dataset)
-
-        fig, ax = plt.subplots()
-        for i in range(K):
-            pts = data_2d[[j for j in range(len(labels)) if labels[j] == i]]
-            ax.scatter(pts[:, 0], pts[:, 1], label=f"Cluster {i+1}")
-        ax.legend()
-        st.pyplot(fig)
-
-        # =====================================================
-        # HASIL DATA
-        # =====================================================
-        hasil = df.copy()
-        hasil["Cluster"] = [l + 1 for l in labels]
+        centroids_2d = pca.transform(centroids)
 
         # =====================================================
         # PILIH CLUSTER
@@ -135,25 +121,23 @@ if uploaded_file is not None:
         st.divider()
         st.subheader("🎯 Analisis Cluster Terpilih")
 
-        cluster_pilih = st.selectbox(
+        cluster_idx = st.selectbox(
             "Pilih Cluster:",
-            [f"Cluster {i+1}" for i in range(K)]
+            options=list(range(1, K + 1))
         )
-        cluster_idx = int(cluster_pilih.split()[-1])
-        df_cluster = hasil[hasil["Cluster"] == cluster_idx]
 
-        # =====================================================
-        # SKOR & KATEGORI
-        # =====================================================
+        df["Cluster"] = [l + 1 for l in labels]
+        df_cluster = df[df["Cluster"] == cluster_idx]
+
         skor = df_cluster.drop(columns=["Cluster"]).values.mean()
-        warna, kategori = warna_kategori(skor)
+        kategori = kategori_kerentanan(skor)
 
         st.markdown(
             f"""
             ### 🧠 Ringkasan Cluster {cluster_idx}
-            - 🎯 Jumlah Data: **{len(df_cluster)}**
-            - 📊 Skor Kerentanan: **{skor:.2f}**
-            - 🚦 Kategori: **:{warna}[{kategori}]**
+            - 👥 Jumlah Anggota: **{len(df_cluster)}**
+            - 📊 Skor Rata-rata: **{skor:.2f}**
+            - 🚦 Tingkat Kerentanan: **{kategori}**
             """
         )
 
@@ -164,64 +148,66 @@ if uploaded_file is not None:
         st.dataframe(df_cluster.head(20), use_container_width=True)
 
         # =====================================================
-        # PCA HIGHLIGHT
+        # PCA SCATTER + CENTROID
         # =====================================================
-        st.subheader("📈 PCA Scatter Plot (Highlight Cluster)")
+        st.subheader("📈 PCA Scatter Plot (Cluster & Centroid)")
 
-        fig2, ax2 = plt.subplots()
+        fig, ax = plt.subplots()
         for i in range(K):
-            pts = data_2d[[j for j in range(len(labels)) if labels[j] == i]]
+            idxs = [j for j, l in enumerate(labels) if l == i]
+            pts = data_2d[idxs]
+
             if i + 1 == cluster_idx:
-                ax2.scatter(pts[:, 0], pts[:, 1], s=120, label=f"Cluster {i+1}")
+                ax.scatter(pts[:, 0], pts[:, 1], s=120, label=f"Cluster {i+1}")
             else:
-                ax2.scatter(pts[:, 0], pts[:, 1], alpha=0.2)
-        ax2.legend()
-        st.pyplot(fig2)
+                ax.scatter(pts[:, 0], pts[:, 1], alpha=0.2)
+
+        # Centroid
+        ax.scatter(
+            centroids_2d[:, 0],
+            centroids_2d[:, 1],
+            marker="X",
+            s=300,
+            c="black",
+            label="Centroid"
+        )
+
+        for i, (x, y) in enumerate(centroids_2d):
+            ax.text(x, y, f"C{i+1}", fontsize=11, fontweight="bold")
+
+        ax.set_xlabel("PCA 1")
+        ax.set_ylabel("PCA 2")
+        ax.legend()
+        st.pyplot(fig)
 
         # =====================================================
-        # BAR KERENTANAN
-        # =====================================================
-        st.subheader("📊 Grafik Bar Tingkat Kerentanan")
-
-        skor_cluster = []
-        warna_bar = []
-
-        for i, cluster in enumerate(clusters):
-            if not cluster:
-                s = 0
-            else:
-                s = sum(sum(d) for _, d in cluster) / (len(cluster) * dim)
-            skor_cluster.append(s)
-            warna_bar.append(warna_kategori(s)[0] if i + 1 == cluster_idx else "lightgray")
-
-        fig3, ax3 = plt.subplots()
-        ax3.bar([f"Cluster {i+1}" for i in range(K)], skor_cluster, color=warna_bar)
-        ax3.set_ylim(0, 1)
-        st.pyplot(fig3)
-
-        # =====================================================
-        # KARAKTERISTIK
+        # KARAKTERISTIK DESKRIPTIF
         # =====================================================
         st.subheader("🧬 Karakteristik Cluster")
-        st.dataframe(df_cluster.drop(columns=["Cluster"]).mean().to_frame("Rata-rata"))
+        st.markdown("""
+        Cluster ini menunjukkan pola kondisi sosial ekonomi yang relatif serupa,
+        terutama pada tingkat pendidikan, penghasilan keluarga, dan kondisi tempat tinggal.
+        Anak pada cluster ini berpotensi menghadapi hambatan pendidikan yang perlu
+        ditangani secara khusus sesuai tingkat kerentanannya.
+        """)
 
         # =====================================================
         # PENYEBAB & SOLUSI
         # =====================================================
         st.subheader("⚠️ Penyebab Potensial Anak Putus Sekolah")
         st.markdown("""
-        - Kondisi sosial ekonomi keluarga yang terbatas  
-        - Rendahnya pendidikan orang tua  
-        - Anak harus bekerja membantu keluarga  
-        - Lingkungan tempat tinggal kurang mendukung pendidikan  
+        - Keterbatasan ekonomi keluarga  
+        - Rendahnya dukungan pendidikan dari lingkungan keluarga  
+        - Tekanan untuk bekerja membantu orang tua  
+        - Akses pendidikan yang kurang memadai  
         """)
 
         st.subheader("🛠️ Solusi dan Rekomendasi Kebijakan")
         st.markdown("""
-        - Bantuan pendidikan tepat sasaran  
+        - Bantuan pendidikan berbasis cluster kerentanan  
         - Program pendampingan keluarga rentan  
-        - Akses pendidikan nonformal  
-        - Kolaborasi sekolah, pemerintah, dan masyarakat  
+        - Penguatan pendidikan nonformal dan kejar paket  
+        - Kolaborasi pemerintah, sekolah, dan masyarakat  
         """)
 
-        st.success("✅ Analisis cluster selesai dan siap digunakan.")
+        st.success("✅ Analisis cluster berhasil dan siap dipresentasikan.")
