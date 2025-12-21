@@ -15,7 +15,8 @@ st.set_page_config(
 
 st.title("📊 Prototipe Segmentasi Anak Putus Sekolah")
 st.markdown(
-    "Aplikasi web sederhana untuk melakukan klasterisasi menggunakan algoritma **K-Means**."
+    "Aplikasi web interaktif untuk melakukan segmentasi anak putus sekolah "
+    "menggunakan algoritma **K-Means Clustering**."
 )
 st.divider()
 
@@ -28,28 +29,22 @@ K = st.sidebar.slider("Jumlah Cluster (K)", min_value=2, max_value=8, value=4)
 MAX_ITER = 100
 
 # =====================================================
-# FUNGSI K-MEANS (VERSI AMAN)
+# FUNGSI K-MEANS (AMAN)
 # =====================================================
 def euclidean(a, b):
-    # 🔒 PERBAIKAN 2: aman jika panjang data tidak sama
-    return math.sqrt(
-        sum((a[i] - b[i]) ** 2 for i in range(min(len(a), len(b))))
-    )
+    return math.sqrt(sum((a[i] - b[i]) ** 2 for i in range(min(len(a), len(b)))))
 
 def init_centroids(data, k):
-    # 🔒 PERBAIKAN 3: hindari referensi objek rusak
     return [data[i][:] for i in random.sample(range(len(data)), k)]
 
 def assign_clusters(data, centroids):
     clusters = [[] for _ in centroids]
     labels = []
-
     for idx, point in enumerate(data):
         distances = [euclidean(point, c) for c in centroids]
-        cluster_idx = distances.index(min(distances))
-        clusters[cluster_idx].append((idx + 1, point))
-        labels.append(cluster_idx)
-
+        cidx = distances.index(min(distances))
+        clusters[cidx].append((idx + 1, point))
+        labels.append(cidx)
     return clusters, labels
 
 def compute_centroids(clusters, dim):
@@ -58,30 +53,36 @@ def compute_centroids(clusters, dim):
         if not cluster:
             centroids.append([0] * dim)
         else:
-            centroid = [
-                sum(p[1][i] for p in cluster) / len(cluster)
-                for i in range(dim)
-            ]
-            centroids.append(centroid)
+            centroids.append(
+                [sum(p[1][i] for p in cluster) / len(cluster) for i in range(dim)]
+            )
     return centroids
+
+def warna_kategori(skor):
+    if skor >= 0.75:
+        return "red", "Sangat Tinggi"
+    elif skor >= 0.60:
+        return "orange", "Tinggi"
+    elif skor >= 0.40:
+        return "gold", "Sedang"
+    else:
+        return "green", "Sangat Sedang"
 
 # =====================================================
 # PROSES UTAMA
 # =====================================================
 if uploaded_file is not None:
 
-    # 🔒 PERBAIKAN 1: LOAD & VALIDASI DATASET
     try:
         df_raw = pd.read_csv(uploaded_file, header=None)
-    except Exception:
+    except:
         st.error("❌ Gagal membaca file CSV.")
         st.stop()
 
     dataset = []
     for _, row in df_raw.iterrows():
         try:
-            numeric_row = [float(x) for x in row.tolist()]
-            dataset.append(numeric_row)
+            dataset.append([float(x) for x in row.tolist()])
         except:
             continue
 
@@ -89,13 +90,8 @@ if uploaded_file is not None:
         st.error("❌ Dataset kosong atau tidak valid.")
         st.stop()
 
-    # pastikan semua baris punya panjang sama
     dim = len(dataset[0])
     dataset = [row for row in dataset if len(row) == dim]
-
-    if len(dataset) == 0:
-        st.error("❌ Dataset tidak konsisten.")
-        st.stop()
 
     df = pd.DataFrame(dataset)
     st.success(f"📁 Dataset dimuat: {len(dataset)} data, {dim} variabel")
@@ -113,78 +109,119 @@ if uploaded_file is not None:
             centroids = new_centroids
 
         # =====================================================
-        # VISUALISASI PCA
+        # PCA GLOBAL
         # =====================================================
-        st.subheader("📈 Visualisasi PCA Scatter Plot")
+        st.subheader("📈 PCA Scatter Plot (Global)")
 
         pca = PCA(n_components=2)
         data_2d = pca.fit_transform(dataset)
 
         fig, ax = plt.subplots()
         for i in range(K):
-            points = data_2d[[j for j in range(len(labels)) if labels[j] == i]]
-            ax.scatter(points[:, 0], points[:, 1], label=f"Cluster {i+1}")
-
-        ax.set_xlabel("PCA 1")
-        ax.set_ylabel("PCA 2")
+            pts = data_2d[[j for j in range(len(labels)) if labels[j] == i]]
+            ax.scatter(pts[:, 0], pts[:, 1], label=f"Cluster {i+1}")
         ax.legend()
         st.pyplot(fig)
 
         # =====================================================
-        # TABEL HASIL
+        # HASIL DATA
         # =====================================================
-        st.subheader("📋 Tabel Hasil Klasterisasi")
-
         hasil = df.copy()
         hasil["Cluster"] = [l + 1 for l in labels]
-        st.dataframe(hasil, use_container_width=True)
 
         # =====================================================
-        # DOWNLOAD CSV
+        # PILIH CLUSTER
         # =====================================================
-        csv_all = hasil.to_csv(index=False).encode("utf-8")
-        st.download_button(
-            "💾 Download CSV Hasil Klaster",
-            csv_all,
-            "hasil_cluster.csv",
-            "text/csv"
+        st.divider()
+        st.subheader("🎯 Analisis Cluster Terpilih")
+
+        cluster_pilih = st.selectbox(
+            "Pilih Cluster:",
+            [f"Cluster {i+1}" for i in range(K)]
+        )
+        cluster_idx = int(cluster_pilih.split()[-1])
+        df_cluster = hasil[hasil["Cluster"] == cluster_idx]
+
+        # =====================================================
+        # SKOR & KATEGORI
+        # =====================================================
+        skor = df_cluster.drop(columns=["Cluster"]).values.mean()
+        warna, kategori = warna_kategori(skor)
+
+        st.markdown(
+            f"""
+            ### 🧠 Ringkasan Cluster {cluster_idx}
+            - 🎯 Jumlah Data: **{len(df_cluster)}**
+            - 📊 Skor Kerentanan: **{skor:.2f}**
+            - 🚦 Kategori: **:{warna}[{kategori}]**
+            """
         )
 
         # =====================================================
-        # STATISTIK TIAP CLUSTER
+        # ANGGOTA CLUSTER
         # =====================================================
-        st.subheader("📊 Statistik Ringkas Tiap Cluster")
-
-        for i, cluster in enumerate(clusters):
-            st.markdown(f"**Cluster {i+1}**")
-            if not cluster:
-                st.write("Tidak ada data.")
-                continue
-
-            values = pd.DataFrame([data for _, data in cluster])
-            stats = values.agg(["mean", "min", "max"])
-            st.dataframe(stats)
+        st.subheader("📋 Anggota Cluster Terpilih")
+        st.dataframe(df_cluster.head(20), use_container_width=True)
 
         # =====================================================
-        # PROFIL KLASTER OTOMATIS
+        # PCA HIGHLIGHT
         # =====================================================
-        st.subheader("🧠 Profil Klaster Otomatis")
+        st.subheader("📈 PCA Scatter Plot (Highlight Cluster)")
 
-        for i, cluster in enumerate(clusters):
-            jumlah = len(cluster)
-            rata = sum(sum(data) for _, data in cluster) / (jumlah * dim)
-
-            if rata >= 0.66:
-                kategori = "Kerentanan Tinggi"
-            elif rata >= 0.33:
-                kategori = "Kerentanan Sedang"
+        fig2, ax2 = plt.subplots()
+        for i in range(K):
+            pts = data_2d[[j for j in range(len(labels)) if labels[j] == i]]
+            if i + 1 == cluster_idx:
+                ax2.scatter(pts[:, 0], pts[:, 1], s=120, label=f"Cluster {i+1}")
             else:
-                kategori = "Kerentanan Rendah"
+                ax2.scatter(pts[:, 0], pts[:, 1], alpha=0.2)
+        ax2.legend()
+        st.pyplot(fig2)
 
-            st.markdown(
-                f"**Cluster {i+1}** terdiri dari **{jumlah} data** "
-                f"dengan rata-rata nilai variabel **{rata:.2f}**, "
-                f"menunjukkan **{kategori}**."
-            )
+        # =====================================================
+        # BAR KERENTANAN
+        # =====================================================
+        st.subheader("📊 Grafik Bar Tingkat Kerentanan")
 
-        st.success("✅ Proses klasterisasi selesai.")
+        skor_cluster = []
+        warna_bar = []
+
+        for i, cluster in enumerate(clusters):
+            if not cluster:
+                s = 0
+            else:
+                s = sum(sum(d) for _, d in cluster) / (len(cluster) * dim)
+            skor_cluster.append(s)
+            warna_bar.append(warna_kategori(s)[0] if i + 1 == cluster_idx else "lightgray")
+
+        fig3, ax3 = plt.subplots()
+        ax3.bar([f"Cluster {i+1}" for i in range(K)], skor_cluster, color=warna_bar)
+        ax3.set_ylim(0, 1)
+        st.pyplot(fig3)
+
+        # =====================================================
+        # KARAKTERISTIK
+        # =====================================================
+        st.subheader("🧬 Karakteristik Cluster")
+        st.dataframe(df_cluster.drop(columns=["Cluster"]).mean().to_frame("Rata-rata"))
+
+        # =====================================================
+        # PENYEBAB & SOLUSI
+        # =====================================================
+        st.subheader("⚠️ Penyebab Potensial Anak Putus Sekolah")
+        st.markdown("""
+        - Kondisi sosial ekonomi keluarga yang terbatas  
+        - Rendahnya pendidikan orang tua  
+        - Anak harus bekerja membantu keluarga  
+        - Lingkungan tempat tinggal kurang mendukung pendidikan  
+        """)
+
+        st.subheader("🛠️ Solusi dan Rekomendasi Kebijakan")
+        st.markdown("""
+        - Bantuan pendidikan tepat sasaran  
+        - Program pendampingan keluarga rentan  
+        - Akses pendidikan nonformal  
+        - Kolaborasi sekolah, pemerintah, dan masyarakat  
+        """)
+
+        st.success("✅ Analisis cluster selesai dan siap digunakan.")
