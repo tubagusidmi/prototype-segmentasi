@@ -76,7 +76,9 @@ def compute_centroids(clusters, dim):
         if not cluster:
             centroids.append([0] * dim)
         else:
-            centroids.append([sum(p[i] for p in cluster)/len(cluster) for i in range(dim)])
+            centroids.append(
+                [sum(p[i] for p in cluster) / len(cluster) for i in range(dim)]
+            )
     return centroids
 
 # =====================================================
@@ -124,9 +126,13 @@ if st.session_state.locked:
     st.write(f"Jumlah Data : **{len(df_cluster)}**")
 
     # =================================================
-    # 📋 ANGGOTA CLUSTER LENGKAP
+    # 📋 ANGGOTA CLUSTER (OPSI 1 – PAGINATION STREAMLIT)
     # =================================================
     st.subheader("📋 Anggota Cluster (Lengkap)")
+
+    st.info(
+        "Gunakan navigasi di pojok kanan bawah tabel untuk melihat seluruh data anggota cluster."
+    )
 
     st.dataframe(
         df_cluster.reset_index(drop=True),
