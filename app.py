@@ -15,6 +15,8 @@ if "df" not in st.session_state:
     st.session_state.df = None
 if "labels" not in st.session_state:
     st.session_state.labels = None
+if "centroids" not in st.session_state:
+    st.session_state.centroids = None
 
 # =====================================================
 # KONFIGURASI HALAMAN
@@ -56,7 +58,8 @@ def assign_clusters(data, centroids):
     labels = []
     for point in data:
         distances = [euclidean(point, c) for c in centroids]
-        labels.append(distances.index(min(distances)))
+        cidx = distances.index(min(distances))
+        labels.append(cidx)
     return labels
 
 def compute_centroids(data, labels, k, dim):
@@ -93,6 +96,7 @@ if uploaded_file is not None:
 
             st.session_state.df = df
             st.session_state.labels = labels
+            st.session_state.centroids = centroids
             st.session_state.locked = True
 
 # =====================================================
@@ -101,10 +105,62 @@ if uploaded_file is not None:
 if st.session_state.locked:
     df = st.session_state.df
     labels = st.session_state.labels
+    centroids = st.session_state.centroids
 
     hasil = df.copy()
     hasil["Cluster"] = [l + 1 for l in labels]
 
+    # =================================================
+    # 📈 PCA SCATTER PLOT + LABEL CENTROID
+    # =================================================
+    st.subheader("📈 PCA Scatter Plot dengan Label Centroid")
+
+    pca = PCA(n_components=2)
+    data_pca = pca.fit_transform(df.values)
+    centroid_pca = pca.transform(centroids)
+
+    fig, ax = plt.subplots(figsize=(8, 6))
+
+    ax.scatter(
+        data_pca[:, 0],
+        data_pca[:, 1],
+        c=labels,
+        cmap="tab10",
+        alpha=0.7
+    )
+
+    ax.scatter(
+        centroid_pca[:, 0],
+        centroid_pca[:, 1],
+        c="red",
+        s=200,
+        marker="X",
+        label="Centroid"
+    )
+
+    # LABEL C1, C2, C3, C4 PADA CENTROID
+    for i, (x, y) in enumerate(centroid_pca):
+        ax.text(
+            x,
+            y,
+            f"C{i+1}",
+            fontsize=12,
+            fontweight="bold",
+            ha="center",
+            va="center",
+            bbox=dict(facecolor="white", edgecolor="black", boxstyle="round,pad=0.3")
+        )
+
+    ax.set_xlabel("PCA 1")
+    ax.set_ylabel("PCA 2")
+    ax.set_title("PCA Scatter Plot dengan Label Centroid")
+    ax.legend()
+
+    st.pyplot(fig)
+
+    # =================================================
+    # PILIH CLUSTER
+    # =================================================
     cluster_idx = st.selectbox(
         "Pilih Cluster:",
         options=list(range(1, K + 1))
@@ -116,48 +172,47 @@ if st.session_state.locked:
     st.write(f"Jumlah Data : **{len(df_cluster)}**")
 
     # =================================================
-    # 📋 ANGGOTA CLUSTER (CONTOH TAMPILAN SAJA)
+    # 📋 ANGGOTA CLUSTER (LENGKAP)
     # =================================================
-    st.subheader("📋 Anggota Cluster (Contoh Tampilan)")
+    st.subheader("📋 Anggota Cluster (Lengkap)")
+
+    tinggi_tabel = min(900, 35 * (len(df_cluster) + 1))
 
     st.dataframe(
-        df_cluster.head(20).reset_index(drop=True),
-        use_container_width=True
+        df_cluster.reset_index(drop=True),
+        use_container_width=True,
+        height=tinggi_tabel,
+        page_size=len(df_cluster)
     )
 
-    st.caption(
-        f"Menampilkan 20 data contoh dari total {len(df_cluster)} anggota Cluster {cluster_idx}. "
-        "Data lengkap dapat diunduh pada bagian berikut."
+    st.caption(f"Total anggota Cluster {cluster_idx} : {len(df_cluster)} data")
+
+    # =================================================
+    # ⬇️ DOWNLOAD CSV
+    # =================================================
+    csv_cluster = df_cluster.reset_index(drop=True).to_csv(index=False)
+
+    st.download_button(
+        label=f"⬇️ Download CSV Cluster {cluster_idx}",
+        data=csv_cluster,
+        file_name=f"anggota_cluster_{cluster_idx}.csv",
+        mime="text/csv"
     )
 
     # =================================================
-    # ⬇️ UNDUH DATA LENGKAP PER KLASTER
+    # ⬇️ DOWNLOAD EXCEL
     # =================================================
-    st.subheader("⬇️ Unduh Data Lengkap Cluster")
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-        csv_cluster = df_cluster.reset_index(drop=True).to_csv(index=False)
-        st.download_button(
-            label=f"⬇️ Download CSV Cluster {cluster_idx}",
-            data=csv_cluster,
-            file_name=f"anggota_cluster_{cluster_idx}.csv",
-            mime="text/csv"
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
+        df_cluster.reset_index(drop=True).to_excel(
+            writer,
+            index=False,
+            sheet_name=f"Cluster_{cluster_idx}"
         )
 
-    with col2:
-        output = io.BytesIO()
-        with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
-            df_cluster.reset_index(drop=True).to_excel(
-                writer,
-                index=False,
-                sheet_name=f"Cluster_{cluster_idx}"
-            )
-
-        st.download_button(
-            label=f"⬇️ Download Excel Cluster {cluster_idx}",
-            data=output.getvalue(),
-            file_name=f"anggota_cluster_{cluster_idx}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+    st.download_button(
+        label=f"⬇️ Download Excel Cluster {cluster_idx}",
+        data=output.getvalue(),
+        file_name=f"anggota_cluster_{cluster_idx}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
