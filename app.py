@@ -53,12 +53,10 @@ def init_centroids(data, k):
     return [data[i][:] for i in random.sample(range(len(data)), k)]
 
 def assign_clusters(data, centroids):
-    clusters = [[] for _ in centroids]
     labels = []
     for point in data:
         distances = [euclidean(point, c) for c in centroids]
-        cidx = distances.index(min(distances))
-        labels.append(cidx)
+        labels.append(distances.index(min(distances)))
     return labels
 
 def compute_centroids(data, labels, k, dim):
@@ -118,48 +116,48 @@ if st.session_state.locked:
     st.write(f"Jumlah Data : **{len(df_cluster)}**")
 
     # =================================================
-    # 📋 ANGGOTA CLUSTER (FULL, TANPA BATAS 20 BARIS)
+    # 📋 ANGGOTA CLUSTER (CONTOH TAMPILAN SAJA)
     # =================================================
-    st.subheader("📋 Anggota Cluster (Lengkap)")
-
-    # Tinggi tabel otomatis (maks 900px agar tetap nyaman)
-    tinggi_tabel = min(900, 35 * (len(df_cluster) + 1))
+    st.subheader("📋 Anggota Cluster (Contoh Tampilan)")
 
     st.dataframe(
-        df_cluster.reset_index(drop=True),
-        use_container_width=True,
-        height=tinggi_tabel,
-        page_size=len(df_cluster)  # INI KUNCI UTAMA
+        df_cluster.head(20).reset_index(drop=True),
+        use_container_width=True
     )
 
-    st.caption(f"Total anggota Cluster {cluster_idx} : {len(df_cluster)} data")
-
-    # =================================================
-    # ⬇️ DOWNLOAD CSV PER CLUSTER
-    # =================================================
-    csv_cluster = df_cluster.reset_index(drop=True).to_csv(index=False)
-
-    st.download_button(
-        label=f"⬇️ Download CSV Cluster {cluster_idx}",
-        data=csv_cluster,
-        file_name=f"anggota_cluster_{cluster_idx}.csv",
-        mime="text/csv"
+    st.caption(
+        f"Menampilkan 20 data contoh dari total {len(df_cluster)} anggota Cluster {cluster_idx}. "
+        "Data lengkap dapat diunduh pada bagian berikut."
     )
 
     # =================================================
-    # ⬇️ EXPORT EXCEL (.xlsx) PER CLUSTER
+    # ⬇️ UNDUH DATA LENGKAP PER KLASTER
     # =================================================
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
-        df_cluster.reset_index(drop=True).to_excel(
-            writer,
-            index=False,
-            sheet_name=f"Cluster_{cluster_idx}"
+    st.subheader("⬇️ Unduh Data Lengkap Cluster")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        csv_cluster = df_cluster.reset_index(drop=True).to_csv(index=False)
+        st.download_button(
+            label=f"⬇️ Download CSV Cluster {cluster_idx}",
+            data=csv_cluster,
+            file_name=f"anggota_cluster_{cluster_idx}.csv",
+            mime="text/csv"
         )
 
-    st.download_button(
-        label=f"⬇️ Download Excel Cluster {cluster_idx}",
-        data=output.getvalue(),
-        file_name=f"anggota_cluster_{cluster_idx}.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
+    with col2:
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
+            df_cluster.reset_index(drop=True).to_excel(
+                writer,
+                index=False,
+                sheet_name=f"Cluster_{cluster_idx}"
+            )
+
+        st.download_button(
+            label=f"⬇️ Download Excel Cluster {cluster_idx}",
+            data=output.getvalue(),
+            file_name=f"anggota_cluster_{cluster_idx}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
