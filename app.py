@@ -5,38 +5,12 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from sklearn.decomposition import PCA
 
-# =====================================================
-# SESSION STATE
-# =====================================================
-if "locked" not in st.session_state:
-    st.session_state.locked = False
-if "df" not in st.session_state:
-    st.session_state.df = None
-if "labels" not in st.session_state:
-    st.session_state.labels = None
-if "clusters" not in st.session_state:
-    st.session_state.clusters = None
-if "centroids" not in st.session_state:
-    st.session_state.centroids = None
-if "data_2d" not in st.session_state:
-    st.session_state.data_2d = None
-if "centroids_2d" not in st.session_state:
-    st.session_state.centroids_2d = None
-
-# =====================================================
-# KONFIGURASI HALAMAN
-# =====================================================
 st.set_page_config(
     page_title="Prototipe Segmentasi Anak Putus Sekolah",
     layout="wide"
 )
 
 st.title("📊 Prototipe Segmentasi Anak Putus Sekolah")
-st.markdown(
-    "Aplikasi web interaktif untuk melakukan segmentasi anak putus sekolah "
-    "menggunakan algoritma **K-Means Clustering**."
-)
-st.divider()
 
 # =====================================================
 # SIDEBAR
@@ -44,25 +18,14 @@ st.divider()
 st.sidebar.header("⚙️ Pengaturan")
 
 uploaded_file = st.sidebar.file_uploader("Upload Dataset CSV", type=["csv"])
-
-K = st.sidebar.slider(
-    "Jumlah Cluster (K)",
-    min_value=2,
-    max_value=8,
-    value=4,
-    disabled=st.session_state.locked
-)
-
+K = st.sidebar.slider("Jumlah Cluster (K)", 2, 8, 4)
 MAX_ITER = 100
-
-if st.session_state.locked:
-    st.sidebar.warning("🔒 Hasil klaster sudah dikunci")
 
 # =====================================================
 # FUNGSI K-MEANS
 # =====================================================
 def euclidean(a, b):
-    return math.sqrt(sum((a[i] - b[i]) ** 2 for i in range(min(len(a), len(b)))))
+    return math.sqrt(sum((a[i] - b[i]) ** 2 for i in range(len(a))))
 
 def init_centroids(data, k):
     return [data[i][:] for i in random.sample(range(len(data)), k)]
@@ -80,128 +43,91 @@ def assign_clusters(data, centroids):
 def compute_centroids(clusters, dim):
     centroids = []
     for cluster in clusters:
-        if not cluster:
-            centroids.append([0] * dim)
-        else:
-            centroids.append(
-                [sum(p[1][i] for p in cluster) / len(cluster) for i in range(dim)]
-            )
+        centroids.append(
+            [sum(p[1][i] for p in cluster) / len(cluster) for i in range(dim)]
+        )
     return centroids
 
 # =====================================================
-# LOAD DATASET DAN PROSES K-MEANS
+# LOAD & PROSES DATA
 # =====================================================
 if uploaded_file is not None:
     df_raw = pd.read_csv(uploaded_file, header=None)
 
-    dataset = []
-    for _, row in df_raw.iterrows():
-        try:
-            dataset.append([float(x) for x in row.tolist()])
-        except:
-            continue
-
+    dataset = df_raw.astype(float).values.tolist()
     dim = len(dataset[0])
-    dataset = [row for row in dataset if len(row) == dim]
-    df = pd.DataFrame(dataset)
 
-    st.success(f"📁 Dataset dimuat: {len(dataset)} data, {dim} variabel")
+    if st.button("🚀 Proses K-Means"):
+        random.seed(42)
 
-    if not st.session_state.locked:
-        if st.button("🚀 Proses K-Means"):
-            random.seed(42)
+        centroids = init_centroids(dataset, K)
+        for _ in range(MAX_ITER):
+            clusters, labels = assign_clusters(dataset, centroids)
+            new_centroids = compute_centroids(clusters, dim)
+            if centroids == new_centroids:
+                break
+            centroids = new_centroids
 
-            centroids = init_centroids(dataset, K)
-            for _ in range(MAX_ITER):
-                clusters, labels = assign_clusters(dataset, centroids)
-                new_centroids = compute_centroids(clusters, dim)
-                if centroids == new_centroids:
-                    break
-                centroids = new_centroids
+        # PCA
+        pca = PCA(n_components=2)
+        data_2d = pca.fit_transform(dataset)
+        centroids_2d = pca.transform(centroids)
 
-            pca = PCA(n_components=2)
-            data_2d = pca.fit_transform(dataset)
-            centroids_2d = pca.transform(centroids)
+        df = pd.DataFrame(dataset)
+        df["Cluster"] = [l + 1 for l in labels]
 
-            st.session_state.df = df
-            st.session_state.labels = labels
-            st.session_state.clusters = clusters
-            st.session_state.centroids = centroids
-            st.session_state.data_2d = data_2d
-            st.session_state.centroids_2d = centroids_2d
-            st.session_state.locked = True
+        # =================================================
+        # PILIH CLUSTER
+        # =================================================
+        cluster_idx = st.selectbox(
+            "Pilih Cluster",
+            sorted(df["Cluster"].unique())
+        )
 
-            st.success("✅ Proses K-Means selesai dan hasil dikunci")
+        df_cluster = df[df["Cluster"] == cluster_idx]
 
-# =====================================================
-# TAMPILKAN HASIL FINAL
-# =====================================================
-if st.session_state.locked:
-    df = st.session_state.df
-    labels = st.session_state.labels
-    data_2d = st.session_state.data_2d
-    centroids_2d = st.session_state.centroids_2d
-
-    hasil = df.copy()
-    hasil["Cluster"] = [l + 1 for l in labels]
-
-    st.divider()
-    st.subheader("🎯 Analisis Cluster")
-
-    # Pilih cluster
-    cluster_idx = st.selectbox(
-        "Pilih Cluster:",
-        options=sorted(hasil["Cluster"].unique()),
-        key="cluster_pilihan"
-    )
-
-    df_cluster = hasil[hasil["Cluster"] == cluster_idx]
-    skor = df_cluster.drop(columns=["Cluster"]).values.mean()
-
-    st.markdown(f"""
+        st.markdown(f"""
 ### 📌 Ringkasan Cluster {cluster_idx}
-- Jumlah Data : **{len(df_cluster)}**
-- Skor Rata-rata : **{skor:.2f}**
+- Jumlah Anggota: **{len(df_cluster)}**
 """)
 
-    # =====================================================
-    # PCA SCATTER PLOT
-    # =====================================================
-    st.subheader("📈 PCA Scatter Plot Semua Cluster (Highlight Terpilih)")
-    fig_pca, ax_pca = plt.subplots()
+        # =================================================
+        # PCA SCATTER
+        # =================================================
+        st.subheader("📈 PCA Scatter Plot")
 
-    colors = ['green', 'red', 'orange', 'cyan', 'purple', 'brown', 'pink', 'blue'][:K]
+        fig, ax = plt.subplots()
+        for i in range(K):
+            pts = data_2d[[j for j in range(len(labels)) if labels[j] == i]]
+            ax.scatter(pts[:, 0], pts[:, 1], alpha=0.2)
 
-    for i in range(K):
-        pts = data_2d[[j for j in range(len(labels)) if labels[j] == i]]
-        if i + 1 == cluster_idx:
-            ax_pca.scatter(pts[:, 0], pts[:, 1], color=colors[i], s=120, label=f"Cluster {i+1} (Terpilih)")
-        else:
-            ax_pca.scatter(pts[:, 0], pts[:, 1], color=colors[i], alpha=0.15, s=60, label=f"Cluster {i+1}")
+        ax.scatter(
+            centroids_2d[:, 0],
+            centroids_2d[:, 1],
+            marker="*",
+            s=300,
+            c="black"
+        )
 
-    ax_pca.scatter(
-        centroids_2d[:, 0],
-        centroids_2d[:, 1],
-        marker="*",
-        s=350,
-        c="black",
-        label="Centroid"
-    )
+        for i, (x, y) in enumerate(centroids_2d):
+            ax.text(
+                x + 0.05,
+                y + 0.05,
+                f"C{i+1}",
+                fontsize=12,
+                fontweight="bold",
+                bbox=dict(facecolor="white", edgecolor="black")
+            )
 
-    ax_pca.set_xlabel("PCA 1")
-    ax_pca.set_ylabel("PCA 2")
-    ax_pca.legend()
-    st.pyplot(fig_pca)
+        st.pyplot(fig)
 
-    # =====================================================
-    # ANGGOTA CLUSTER (FULL + SCROLL)
-    # =====================================================
-    st.subheader(f"📋 Anggota Cluster {cluster_idx} (Lengkap)")
+        # =================================================
+        # TABEL ANGGOTA CLUSTER (FULL + SCROLL)
+        # =================================================
+        st.subheader(f"📋 Anggota Cluster {cluster_idx} (Lengkap)")
 
-    st.dataframe(
-        df_cluster.reset_index(drop=True),
-        use_container_width=True,
-        height=400   # ⬅️ scroll ke bawah aktif
-    )
-
-    st.success("✅ Semua anggota cluster ditampilkan lengkap dengan scroll.")
+        st.dataframe(
+            df_cluster.reset_index(drop=True),
+            use_container_width=True,
+            height=400
+        )
